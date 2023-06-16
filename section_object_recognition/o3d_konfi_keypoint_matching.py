@@ -26,7 +26,7 @@ def draw_registration_resurt(source, target, transformation):
         temp = copy.deepcopy(s)
         pcds.append( temp.transform(transformation) )
     pcds += target
-    o3d.visualization.draw_geometries(pcds, zoom=0.8,
+    o3d.visualization.draw_geometries(pcds, zoom=0.3199,
                                       front = [0.024, -0.225, -0.973],
                                       lookat = [0.488, 1.722, 1.556],
                                       up = [0.047, -0.972, 0.226])
@@ -59,3 +59,56 @@ s_kp.paint_uniform_color([0,1,0])
 t_kp.paint_uniform_color([0,1,0])
 
 draw_registration_resurt([source,s_kp], [target,t_kp], initial_trans)
+
+#Searching corresponding point
+np_s_feature = s_feature.data.T
+np_t_feature = t_feature.data.T
+
+corrs = o3d.utility.Vector2iVector()
+threshold = 0.9
+for i,feat in enumerate(np_s_feature):
+    distance = np.linalg.norm( np_t_feature - feat, axis = 1)
+    nearest_idx = np.argmin(distance)
+    dist_oder = np.argsort(distance)
+    ratio = distance[dist_oder[0] ]/ distance[dist_oder[1]]
+    if ratio < threshold:
+        corr = np.array( [[i],[nearest_idx]],np.int32 )
+        corrs.append( corr )
+        
+print(f'number of corresponding point sets : {len(corrs)}')
+
+
+#visual ratio test
+def create_linest_from_correspondeces( corrs_set, pcd1, pcd2, transformation=np.identity(4)):
+    pcd1_temp = copy.deepcopy(pcd1)
+    pcd1_temp.transform(transformation)
+    corrs = np.asarray(corrs_set)
+    np_points1 = np.array(pcd1_temp.points)
+    np_points2 = np.array(pcd2.points)
+    points = list()
+    lines = list()
+    
+    for i in range(corrs.shape[0]):
+        points.append( np_points1[corrs[i,0]] )
+        points.append( np_points2[corrs[i,1]] )
+        lines.append([2*i, (2*i)+1])
+        
+    colors = [np.random.rand(3) for i in range(len(lines))]
+    line_set = o3d.geometry.LineSet(
+        points = o3d.utility.Vector3dVector(points),
+        lines = o3d.utility.Vector2iVector(lines),
+        )
+    
+    line_set.colors = o3d.utility.Vector3dVector(colors)
+    return line_set
+
+
+line_set = create_linest_from_correspondeces(corrs, s_kp, t_kp, 
+                                             initial_trans )
+
+draw_registration_resurt([source, s_kp], [target, t_kp, line_set], initial_trans)
+
+#Posture calculation before RANSAC
+trans_ptp = o3d.pipelines.registration.TransformationEstimationPointToPoint(False)
+trans_all = trans_ptp.compute_transformation( s_kp, t_kp, corrs )
+draw_registration_resurt([source], [target], trans_all)
