@@ -20,18 +20,18 @@ initial_trans = np.identity(4)
 initial_trans[0,3] = -0.3
 
 #print point cloud function
-def draw_registration_resurt(source, target, transformation):
+def draw_registration_result(source, target, transformation):
     pcds = list()
     for s in source:
         temp = copy.deepcopy(s)
         pcds.append( temp.transform(transformation) )
     pcds += target
-    o3d.visualization.draw_geometries(pcds, zoom=0.3199,
+    o3d.visualization.draw_geometries(pcds, zoom=0.8,
                                       front = [0.024, -0.225, -0.973],
                                       lookat = [0.488, 1.722, 1.556],
                                       up = [0.047, -0.972, 0.226])
     
-draw_registration_resurt([source], [target], initial_trans)
+draw_registration_result([source], [target], initial_trans)
 
 #Feature detection
 def keypoint_and_feature_extravtion( pcd, voxel_size ):
@@ -58,7 +58,7 @@ t_kp, t_feature = keypoint_and_feature_extravtion(target, voxel_size)
 s_kp.paint_uniform_color([0,1,0])
 t_kp.paint_uniform_color([0,1,0])
 
-draw_registration_resurt([source,s_kp], [target,t_kp], initial_trans)
+draw_registration_result([source,s_kp], [target,t_kp], initial_trans)
 
 #Searching corresponding point
 np_s_feature = s_feature.data.T
@@ -79,7 +79,7 @@ print(f'number of corresponding point sets : {len(corrs)}')
 
 
 #visual ratio test
-def create_linest_from_correspondeces( corrs_set, pcd1, pcd2, transformation=np.identity(4)):
+def create_lineset_from_correspondences( corrs_set, pcd1, pcd2, transformation=np.identity(4)):
     pcd1_temp = copy.deepcopy(pcd1)
     pcd1_temp.transform(transformation)
     corrs = np.asarray(corrs_set)
@@ -103,12 +103,62 @@ def create_linest_from_correspondeces( corrs_set, pcd1, pcd2, transformation=np.
     return line_set
 
 
-line_set = create_linest_from_correspondeces(corrs, s_kp, t_kp, 
+line_set = create_lineset_from_correspondences(corrs, s_kp, t_kp, 
                                              initial_trans )
 
-draw_registration_resurt([source, s_kp], [target, t_kp, line_set], initial_trans)
+draw_registration_result([source, s_kp], [target, t_kp, line_set], initial_trans)
 
 #Posture calculation before RANSAC
 trans_ptp = o3d.pipelines.registration.TransformationEstimationPointToPoint(False)
 trans_all = trans_ptp.compute_transformation( s_kp, t_kp, corrs )
-draw_registration_resurt([source], [target], trans_all)
+draw_registration_result([source], [target], trans_all)
+
+
+#use RANSAC
+distance_threshold = voxel_size*1.5
+result = o3d.pipelines.registration.registration_ransac_based_on_correspondence(
+        s_kp, t_kp, corrs,
+        distance_threshold,
+        o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
+        ransac_n = 3,
+        checkers = [
+            o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(0.9),
+            o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(distance_threshold)
+        ],
+        criteria = o3d.pipelines.registration.RANSACConvergenceCriteria(10000, 0.999)
+        )
+
+line_set = create_lineset_from_correspondences( result.correspondence_set, 
+                                              s_kp, t_kp, initial_trans )
+
+draw_registration_result([source,s_kp],
+                              [target,t_kp,line_set],
+                              initial_trans)
+
+draw_registration_result([source], 
+                         [target], result.transformation)
+
+
+#corresponding point and RANSAC
+distance_threshold = voxel_size*1.5
+result = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
+    s_kp, t_kp, s_feature, t_feature, True,
+    distance_threshold,
+    o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
+    ransac_n = 3,
+    checkers = [
+        o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(0.9),
+        o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(distance_threshold)
+    ],
+    criteria = o3d.pipelines.registration.RANSACConvergenceCriteria(10000, 0.999)
+    )
+
+line_set = create_lineset_from_correspondences( result.correspondence_set, 
+                                              s_kp, t_kp, initial_trans )
+
+draw_registration_result([source,s_kp],
+                              [target,t_kp,line_set],
+                              initial_trans)
+
+draw_registration_result([source], 
+                         [target], result.transformation)
